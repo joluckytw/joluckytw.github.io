@@ -76,7 +76,7 @@
 
       //const ws = new WebSocket('ws://localhost:8080');
       // const ws = new WebSocket('wss://sbc-wan.hualiteq.com:8080');
-     const ws = new WebSocket('wss://jojo0609webrtc.onrender.com:3000');
+     const ws = new WebSocket('wss://jojo0609webrtc.onrender.com:443');
       ws.onopen = () => {
         // 連接伺服器並登入使用者
         const data = {
@@ -311,7 +311,7 @@
       // 傳送訊息至伺服器
      //  const ws = new WebSocket('ws://localhost:8080');
       // const ws = new WebSocket('wss://sbc-wan.hualiteq.com:8080');
-      const ws = new WebSocket('wss://jojo0609webrtc.onrender.com:3000');
+      const ws = new WebSocket('wss://jojo0609webrtc.onrender.com:443');
       ws.onopen = () => {
         ws.send(JSON.stringify(data));
       };
