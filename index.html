@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>一對一視訊聊天室</title>
+  <style>
+    h1 {
+      text-align: center;
+    }
+   #user{
+    text-align: center;
+    margin-bottom: 0px;
+    /* background-color: #14552a; */
+   }
+    video {
+      width: 400px;
+      height:400px;
+      border: 1px solid #14552a;
+      /* border-radius: 50%; */
+      margin:0 20px;
+    }
+    .container {
+    display: flex;
+    justify-content: center;
+    }
+
+    #loginbutton, #loginstate {
+        display: inline;
+    }
+
+
+
+
+  </style>
+</head>
+<body>
+  <h1>JOJO一對一視訊聊天室</h1>
+  <div class="container">
+  <div style="margin-right: 20px;" >
+    <label for="username">使用者名稱:</label>
+    <input type="text" id="username" />
+    <button id="loginbutton" onclick="login()">登入</button> 
+    <p id="loginstate"></p>
+  </div>
+
+  <div>
+    <label for="target">目標使用者:</label>
+    <input type="text" id="target" />
+    <button onclick="call()">視訊通話</button>
+  </div>
+</div>
+  
+  <div class="container" id="videos">
+    <div id="uservideo" ><p id="user">本地log</p><ui id="locallog"></ui></div>
+    <div id="uservideo" ><p id="user">本地</p><video id="localVideo" autoplay></video></div>
+    <div id="uservideo"><p id="user">遠端</p><video id="remoteVideo" autoplay></video></div>
+    <div id="uservideo" ><p id="user">遠端log</p><ui id="remotelog"></ui></div>
+
+  </div>
+
+  <script>
+    let localStream;
+    let remoteStream;
+    let localVideo = document.getElementById('localVideo');
+    let remoteVideo = document.getElementById('remoteVideo');
+    let peerConnection;
+    // 获取要添加内容的目标元素
+    var locallog = document.getElementById("locallog");
+    var remotelog = document.getElementById("remotelog");
+
+    function login() {
+     const username = document.getElementById('username').value;
+      if (username.trim().length === 0) {
+        alert('請輸入使用者名稱');
+        return;
+      }
+
+      //const ws = new WebSocket('ws://localhost:8080');
+      // const ws = new WebSocket('wss://sbc-wan.hualiteq.com:8080');
+     const ws = new WebSocket('wss://jojo0609webrtc.onrender.com:3000');
+      ws.onopen = () => {
+        // 連接伺服器並登入使用者
+        const data = {
+          type: 'login',
+          username: username,
+        };
+        ws.send(JSON.stringify(data));
+      };
+
+      ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        switch (data.type) {
+          case 'login':
+            if (data.success === true) {
+              // 登入成功
+              getUserMedia();
+
+              str = document.createElement('li');
+          // 先用 JS 寫好要增加的內容
+          str.textContent = username+'登入成功';
+          // 用 appendChild() 把上面寫好的子節點掛在既有的 h1 下面，新增的內容會依序排列在後面，不會被洗掉
+          locallog.appendChild(str);
+
+
+
+            } else {
+              alert('登入失敗');
+              document.getElementById('loginstate').textContent ='登入失敗';
+            }
+            break;
+          case 'offer':
+            // 收到視訊 offer，開始建立連線
+            handleOffer(data.offer, data.sender);
+            console.log('');
+        
+
+            break;
+          case 'answer':
+            // 收到視訊 answer，設定遠端描述
+            handleAnswer(data.answer);
+            console.log('');
+            break;
+          case 'candidate':
+            // 收到 ICE candidate，設定連接候選者
+            handleCandidate(data.candidate);
+            break;
+          case 'leave':
+            // 目標使用者離開聊天室，關閉連線
+            handleLeave();
+            break;
+          case 'error':
+            alert('錯誤: ' + data.message);
+            break;
+          default:
+            break;
+        }
+      };
+
+      ws.onclose = () => {
+        // WebSocket 連線關閉處理
+        handleLeave();
+      };
+    }
+
+    function getUserMedia() {
+      // 取得本地視訊串流
+      navigator.mediaDevices
+        .getUserMedia({ video: true, audio: true,
+            video: { width: 400, height: 400 } })
+
+        .then((stream) => {
+          localStream = stream;
+          localVideo.srcObject = stream;
+
+        })
+        .catch((error) => {
+          console.error('取得本地視訊串流失敗:', error);
+        });
+    }
+
+    function call() {
+      const target = document.getElementById('target').value;
+      if (target.trim().length === 0) {
+        alert('請輸入目標使用者名稱');
+        return;
+      }
+
+      // 建立視訊 offer
+      peerConnection = new RTCPeerConnection();
+      localStream.getTracks().forEach((track) => {
+        peerConnection.addTrack(track, localStream);
+      });
+
+      peerConnection.ontrack = (event) => {
+        // 收到遠端視訊串流
+        remoteVideo.srcObject = event.streams[0];
+        remoteStream = event.streams[0];
+      };
+
+      peerConnection.onicecandidate = (event) => {
+        // 傳送 ICE candidate
+        if (event.candidate) {
+          const data = {
+            type: 'candidate',
+            candidate: event.candidate,
+            sender: document.getElementById('username').value,
+            target: target,
+          };
+          sendToServer(data);
+  
+
+        }
+      };
+
+      // 建立視訊連線 offer
+      peerConnection
+        .createOffer()
+        .then((offer) => {
+          return peerConnection.setLocalDescription(offer);
+        })
+        .then(() => {
+          const data = {
+            type: 'offer',
+            offer: peerConnection.localDescription,
+            sender: document.getElementById('username').value,
+            target: target,
+          };
+          sendToServer(data);
+        })
+        .catch((error) => {
+          console.error('建立視訊連線 offer 失敗:', error);
+        });
+    }
+
+    function handleOffer(offer, sender) {
+      // 收到視訊 offer，建立連線
+      peerConnection = new RTCPeerConnection();
+      localStream.getTracks().forEach((track) => {
+        peerConnection.addTrack(track, localStream);
+
+        str = document.createElement('li');
+          // 先用 JS 寫好要增加的內容
+          str.textContent = '收到視訊 offer，建立連線';
+          // 用 appendChild() 把上面寫好的子節點掛在既有的 h1 下面，新增的內容會依序排列在後面，不會被洗掉
+          locallog.appendChild(str);
+      });
+
+      peerConnection.ontrack = (event) => {
+        // 收到遠端視訊串流
+        remoteVideo.srcObject = event.streams[0];
+        remoteStream = event.streams[0];
+        //前檯log
+        str = document.createElement('li');
+          // 先用 JS 寫好要增加的內容
+          str.textContent = '收到遠端視訊串流';
+          // 用 appendChild() 把上面寫好的子節點掛在既有的 h1 下面，新增的內容會依序排列在後面，不會被洗掉
+          locallog.appendChild(str);
+      };
+
+      peerConnection.onicecandidate = (event) => {
+        // 傳送 ICE candidate
+        if (event.candidate) {
+          const data = {
+            type: 'candidate',
+            candidate: event.candidate,
+            sender: document.getElementById('username').value,
+            target: sender,
+          };
+          sendToServer(data);
+           //前檯log
+          str = document.createElement('li');
+          // 先用 JS 寫好要增加的內容
+          str.textContent = '傳送 ICE candidate:'+data;
+          // 用 appendChild() 把上面寫好的子節點掛在既有的 h1 下面，新增的內容會依序排列在後面，不會被洗掉
+          myDiv.appendChild(str);
+        }
+      };
+
+      // 設定遠端描述
+      peerConnection
+        .setRemoteDescription(new RTCSessionDescription(offer))
+        .then(() => {
+          // 建立視訊 answer
+          return peerConnection.createAnswer();
+        })
+        .then((answer) => {
+          return peerConnection.setLocalDescription(answer);
+        })
+        .then(() => {
+          const data = {
+            type: 'answer',
+            answer: peerConnection.localDescription,
+            sender: document.getElementById('username').value,
+            target: sender,
+          };
+          sendToServer(data);
+          console.log('處理視訊 offer 成功:', data);
+        })
+        .catch((error) => {
+          console.error('處理視訊 offer 失敗:', error);
+        });
+    }
+
+    function handleAnswer(answer) {
+      // 收到視訊 answer，設定遠端描述
+      peerConnection
+        .setRemoteDescription(new RTCSessionDescription(answer))
+        .catch((error) => {
+          console.error('處理視訊 answer 失敗:', error);
+        });
+    }
+
+    function handleCandidate(candidate) {
+      // 收到 ICE candidate，設定連接候選者
+      peerConnection
+        .addIceCandidate(new RTCIceCandidate(candidate))
+        .catch((error) => {
+          console.error('處理 ICE candidate 失敗:', error);
+        });
+    }
+
+    function handleLeave() {
+      // 使用者離開聊天室，關閉連線
+      if (peerConnection) {
+        peerConnection.close();
+        peerConnection = null;
+      }
+      remoteVideo.srcObject = null;
+    }
+
+    function sendToServer(data) {
+      // 傳送訊息至伺服器
+     //  const ws = new WebSocket('ws://localhost:8080');
+      // const ws = new WebSocket('wss://sbc-wan.hualiteq.com:8080');
+      const ws = new WebSocket('wss://jojo0609webrtc.onrender.com:3000');
+      ws.onopen = () => {
+        ws.send(JSON.stringify(data));
+      };
+      ws.onclose = () => {
+        console.error('WebSocket 連線關閉');
+      };
+    }
+  </script>
+</body>
+</html>
